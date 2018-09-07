@@ -14,39 +14,112 @@
  * the License.
  */
 
+apply plugin: "catkin"
+
 task wrapper(type: Wrapper) {
-  gradleVersion = '2.14.1'
+    gradleVersion = '2.14.1'
 }
 
 buildscript {
-  apply from: "https://github.com/rosjava/rosjava_bootstrap/raw/kinetic/buildscript.gradle"
+    String rosMavenPath = System.getenv("ROS_MAVEN_PATH")
+    String rosMavenRepository = System.getenv("ROS_MAVEN_REPOSITORY")
+    repositories {
+        if (rosMavenPath != null) {
+            rosMavenPath.tokenize(":").each { path ->
+                maven {
+                    // We can't use uri() here because we aren't running inside something
+                    // that implements the Script interface.
+                    url "file:${path}"
+                }
+            }
+        }
+        maven {
+            url "http://repository.springsource.com/maven/bundles/release"
+        }
+        maven {
+            url "http://repository.springsource.com/maven/bundles/external"
+        }
+        if (rosMavenRepository != null) {
+            maven {
+                url rosMavenRepository
+            }
+        }
+        maven {
+            url "https://github.com/rosjava/rosjava_mvn_repo/raw/master"
+        }
+        jcenter()
+    }
+    dependencies {
+        classpath "org.ros.rosjava_bootstrap:gradle_plugins:[0.3,0.4)"
+        classpath "org.jfrog.buildinfo:build-info-extractor-gradle:4+"
+    }
 }
-
-apply plugin: "catkin"
 
 allprojects {
-  group 'org.ros.rosjava_core'
-  version = project.catkin.pkg.version
+    group 'org.ros.rosjava_core'
+    version = project.catkin.pkg.version
+
+    repositories {
+        maven {
+            url "http://10.0.1.13:8081/artifactory/jcenter"
+        }
+    }
 }
 
+
 subprojects {
-  if (name != 'docs') {
-    /*
-     * The ros plugin configures a few things:
-     *
-     *  - local deployment repository : where it dumps the jars and packaged artifacts)
-     *  - local maven repositories    : where it finds your locally installed/built artifacts)
-     *  - external maven repositories : where it goes looking if it can't find dependencies locally
-     *
-     * To modify, or add repos to the default external maven repositories list, pull request against this code:
-     *
-     *   https://github.com/rosjava/rosjava_bootstrap/blob/kinetic/gradle_plugins/src/main/groovy/org/ros/gradle_plugins/RosPlugin.groovy#L31
-     */
-    apply plugin: "ros-java"
-    apply plugin: "osgi"
-    apply plugin: "idea"
-    apply plugin: "eclipse"
-  }
+    if (name != 'docs') {
+        apply plugin: "ros"
+        apply plugin: "osgi"
+        apply plugin: "java"
+        apply plugin: "com.jfrog.artifactory"
+        apply plugin: 'maven-publish'
+
+        publishing {
+            publications {
+                mavenJava(MavenPublication) {
+                    from components.java
+                }
+            }
+        }
+        artifactoryPublish {
+            publications(publishing.publications.mavenJava)
+        }
+    }
+}
+
+artifactoryPublish.skip = true
+
+artifactory {
+    contextUrl = "${artifactory_contextUrl}"
+    //The base Artifactory URL if not overridden by the publisher/resolver
+    publish {
+        repository {
+            repoKey = 'gradle-dev-local'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            maven = true
+
+        }
+        defaults {
+            // Reference to Gradle publications defined in the build script.
+            // This is how we tell the Artifactory Plugin which artifacts should be
+            // published to Artifactory.
+            publications('mavenJava')
+            publishArtifacts = true
+            publishPom = true // Publish generated POM files to Artifactory (true by default)
+            publishIvy = true // Publish generated Ivy descriptor files to Artifactory (true by default)
+        }
+    }
+    resolve {
+        repository {
+            repoKey = 'gradle-dev'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            maven = true
+
+        }
+    }
 }
 
 defaultTasks 'publish', 'installApp'
